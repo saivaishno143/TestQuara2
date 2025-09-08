@@ -37,27 +37,33 @@ public class QuestionService implements IQuestionService {
     private final QuestionDocumentRepository questionDocumentRepository;
 
     private final NotificationService notificationService;
-    
+
     @Override
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO) {
 
         Question question = Question.builder()
-            .title(questionRequestDTO.getTitle())
-            .content(questionRequestDTO.getContent())
-            .createdAt(LocalDateTime.now())
-            .updatedAt(LocalDateTime.now())
-            .build();
+                .title(questionRequestDTO.getTitle())
+                .content(questionRequestDTO.getContent())
+                .createdAt(LocalDateTime.now())
+                .updatedAt(LocalDateTime.now())
+                .build();
 
-        return questionRepository.save(question)
-        .map(savedQuestion -> {
-            questionIndexService.createQuestionIndex(savedQuestion); // dumping the question to elasticsearch
-            QuestionResponseDTO responseDTO = QuestionAdapter.toQuestionResponseDTO(savedQuestion);
-                        QuestionCreatedEvent event = new QuestionCreatedEvent(responseDTO.getId(), responseDTO.getTitle(), responseDTO.getCreatedAt());
-                        notificationService.sendNotification(event);
-                       return responseDTO;
-        })
-        .doOnSuccess(response -> System.out.println("Question created successfully: " + response))
-        .doOnError(error -> System.out.println("Error creating question: " + error));
+        return questionRepository.save(question) // 1. Save to MongoDB, returns Mono<Question>
+                .flatMap(savedQuestion ->
+                        // 2. After MongoDB save is successful, save to Elasticsearch
+                        questionIndexService.createQuestionIndex(savedQuestion)
+                                // 3. We don't need the result of the ES save, just the original question
+                                .thenReturn(savedQuestion)
+                )
+                .map(savedQuestion -> {
+                    // 4. Now that both saves are done, create the response and send notification
+                    QuestionResponseDTO responseDTO = QuestionAdapter.toQuestionResponseDTO(savedQuestion);
+                    QuestionCreatedEvent event = new QuestionCreatedEvent(responseDTO.getId(), responseDTO.getTitle(), responseDTO.getCreatedAt());
+                    notificationService.sendNotification(event);
+                    return responseDTO;
+                })
+                .doOnSuccess(response -> System.out.println("Question created successfully: " + response))
+                .doOnError(error -> System.out.println("Error creating question: " + error));
     }
 
     @Override
@@ -100,7 +106,7 @@ public class QuestionService implements IQuestionService {
         });
     }
 
-    public List<QuestionElasticDocument> searchQuestionsByElasticsearch(String query) {
+    public Flux<QuestionElasticDocument> searchQuestionsByElasticsearch(String query) {
         return questionDocumentRepository.findByTitleContainingOrContentContaining(query, query);
     }
 }

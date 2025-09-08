@@ -1,15 +1,12 @@
 package com.example.demo.repositories;
 
-import java.util.List;
-
-import org.springframework.data.elasticsearch.repository.ElasticsearchRepository;
-
+import org.springframework.data.elasticsearch.repository.ReactiveElasticsearchRepository;
 import com.example.demo.models.QuestionElasticDocument;
 import org.springframework.stereotype.Repository;
+import reactor.core.publisher.Flux;
 
 @Repository
+public interface QuestionDocumentRepository extends ReactiveElasticsearchRepository<QuestionElasticDocument, String> {
 
-public interface QuestionDocumentRepository extends ElasticsearchRepository<QuestionElasticDocument, String> {
-    
-    List<QuestionElasticDocument> findByTitleContainingOrContentContaining(String title, String content);
+    Flux<QuestionElasticDocument> findByTitleContainingOrContentContaining(String title, String content);
 }

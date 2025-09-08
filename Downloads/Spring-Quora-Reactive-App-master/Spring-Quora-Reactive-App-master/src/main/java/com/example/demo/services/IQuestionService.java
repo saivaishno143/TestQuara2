@@ -20,5 +20,5 @@ public interface IQuestionService {
 
     public Mono<QuestionResponseDTO> getQuestionById(String id);
 
-    public List<QuestionElasticDocument> searchQuestionsByElasticsearch(String query);
+    public Flux<QuestionElasticDocument> searchQuestionsByElasticsearch(String query);
 }

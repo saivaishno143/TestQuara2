@@ -2,9 +2,9 @@ package com.example.demo.services;
 
 import com.example.demo.models.Question;
 import com.example.demo.models.QuestionElasticDocument;
+import reactor.core.publisher.Mono;
 
 public interface IQuestionIndexService {
-    
 
-    void createQuestionIndex(Question question) ;
+    Mono<QuestionElasticDocument> createQuestionIndex(Question question);
 }
