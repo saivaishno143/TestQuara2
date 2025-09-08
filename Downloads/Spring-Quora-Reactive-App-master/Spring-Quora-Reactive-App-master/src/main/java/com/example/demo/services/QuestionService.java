@@ -3,6 +3,7 @@ package com.example.demo.services;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.example.demo.events.QuestionCreatedEvent;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -17,6 +18,7 @@ import com.example.demo.producers.KafkaEventProducer;
 import com.example.demo.repositories.QuestionDocumentRepository;
 import com.example.demo.repositories.QuestionRepository;
 import com.example.demo.utils.CursorUtils;
+import com.example.demo.events.QuestionCreatedEvent;
 
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
@@ -33,6 +35,8 @@ public class QuestionService implements IQuestionService {
     private final IQuestionIndexService questionIndexService;
 
     private final QuestionDocumentRepository questionDocumentRepository;
+
+    private final NotificationService notificationService;
     
     @Override
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO) {
@@ -47,7 +51,10 @@ public class QuestionService implements IQuestionService {
         return questionRepository.save(question)
         .map(savedQuestion -> {
             questionIndexService.createQuestionIndex(savedQuestion); // dumping the question to elasticsearch
-            return QuestionAdapter.toQuestionResponseDTO(savedQuestion);
+            QuestionResponseDTO responseDTO = QuestionAdapter.toQuestionResponseDTO(savedQuestion);
+                        QuestionCreatedEvent event = new QuestionCreatedEvent(responseDTO.getId(), responseDTO.getTitle(), responseDTO.getCreatedAt());
+                        notificationService.sendNotification(event);
+                       return responseDTO;
         })
         .doOnSuccess(response -> System.out.println("Question created successfully: " + response))
         .doOnError(error -> System.out.println("Error creating question: " + error));
