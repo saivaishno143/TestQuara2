@@ -161,4 +161,4 @@ FOR /F "tokens=*" %i IN ('docker ps -aq') DO docker stop %i && docker rm %i
 
 #### 📜 License
 
-This project is licensed under the MIT License.
+This project is licensed
