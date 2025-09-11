@@ -18,7 +18,6 @@ import com.example.demo.producers.KafkaEventProducer;
 import com.example.demo.repositories.QuestionDocumentRepository;
 import com.example.demo.repositories.QuestionRepository;
 import com.example.demo.utils.CursorUtils;
-import com.example.demo.events.QuestionCreatedEvent;
 
 import lombok.RequiredArgsConstructor;
 import reactor.core.publisher.Flux;
@@ -29,14 +28,11 @@ import reactor.core.publisher.Mono;
 public class QuestionService implements IQuestionService {
 
     private final QuestionRepository questionRepository;
-
     private final KafkaEventProducer kafkaEventProducer;
-
     private final IQuestionIndexService questionIndexService;
-
     private final QuestionDocumentRepository questionDocumentRepository;
-
     private final NotificationService notificationService;
+    private final IFeedService feedService;
 
     @Override
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO) {
@@ -44,19 +40,22 @@ public class QuestionService implements IQuestionService {
         Question question = Question.builder()
                 .title(questionRequestDTO.getTitle())
                 .content(questionRequestDTO.getContent())
+                .userId(questionRequestDTO.getUserId())
                 .createdAt(LocalDateTime.now())
                 .updatedAt(LocalDateTime.now())
                 .build();
 
-        return questionRepository.save(question) // 1. Save to MongoDB, returns Mono<Question>
+        return questionRepository.save(question) // 1. Save question to MongoDB
                 .flatMap(savedQuestion ->
-                        // 2. After MongoDB save is successful, save to Elasticsearch
-                        questionIndexService.createQuestionIndex(savedQuestion)
-                                // 3. We don't need the result of the ES save, just the original question
+                        questionIndexService.createQuestionIndex(savedQuestion) // 2. Index in Elasticsearch
+                                .thenReturn(savedQuestion)
+                )
+                .flatMap(savedQuestion ->
+                        feedService.fanOutQuestion(savedQuestion) // 3. Fan-out to followers' feeds
                                 .thenReturn(savedQuestion)
                 )
                 .map(savedQuestion -> {
-                    // 4. Now that both saves are done, create the response and send notification
+                    // 4. Send notification and create response DTO
                     QuestionResponseDTO responseDTO = QuestionAdapter.toQuestionResponseDTO(savedQuestion);
                     QuestionCreatedEvent event = new QuestionCreatedEvent(responseDTO.getId(), responseDTO.getTitle(), responseDTO.getCreatedAt());
                     notificationService.sendNotification(event);
@@ -69,9 +68,9 @@ public class QuestionService implements IQuestionService {
     @Override
     public Flux<QuestionResponseDTO> searchQuestions(String searchTerm, int offset, int page) {
         return questionRepository.findByTitleOrContentContainingIgnoreCase(searchTerm, PageRequest.of(offset, page))
-        .map(QuestionAdapter::toQuestionResponseDTO)
-        .doOnError(error -> System.out.println("Error searching questions: " + error))
-        .doOnComplete(() -> System.out.println("Questions searched successfully"));
+                .map(QuestionAdapter::toQuestionResponseDTO)
+                .doOnError(error -> System.out.println("Error searching questions: " + error))
+                .doOnComplete(() -> System.out.println("Questions searched successfully"));
     }
 
     @Override
@@ -80,16 +79,16 @@ public class QuestionService implements IQuestionService {
 
         if(!CursorUtils.isValidCursor(cursor)) {
             return questionRepository.findTop10ByOrderByCreatedAtAsc()
-            .take(size)
-            .map(QuestionAdapter::toQuestionResponseDTO)
-            .doOnError(error -> System.out.println("Error fetching questions: " + error))
-            .doOnComplete(() -> System.out.println("Questions fetched successfully"));
+                    .take(size)
+                    .map(QuestionAdapter::toQuestionResponseDTO)
+                    .doOnError(error -> System.out.println("Error fetching questions: " + error))
+                    .doOnComplete(() -> System.out.println("Questions fetched successfully"));
         } else {
             LocalDateTime cursorTimeStamp = CursorUtils.parseCursor(cursor);
             return questionRepository.findByCreatedAtGreaterThanOrderByCreatedAtAsc(cursorTimeStamp, pageable)
-            .map(QuestionAdapter::toQuestionResponseDTO)
-            .doOnError(error -> System.out.println("Error fetching questions: " + error))
-            .doOnComplete(() -> System.out.println("Questions fetched successfully"));
+                    .map(QuestionAdapter::toQuestionResponseDTO)
+                    .doOnError(error -> System.out.println("Error fetching questions: " + error))
+                    .doOnComplete(() -> System.out.println("Questions fetched successfully"));
         }
 
     }
@@ -97,16 +96,18 @@ public class QuestionService implements IQuestionService {
     @Override
     public Mono<QuestionResponseDTO> getQuestionById(String id) {
         return questionRepository.findById(id)
-        .map(QuestionAdapter::toQuestionResponseDTO)
-        .doOnError(error -> System.out.println("Error fetching question: " + error))
-        .doOnSuccess(response -> {
-            System.out.println("Question fetched successfully: " + response);
-            ViewCountEvent viewCountEvent = new ViewCountEvent(id, "question", LocalDateTime.now());
-            kafkaEventProducer.publishViewCountEvent(viewCountEvent);
-        });
+                .map(QuestionAdapter::toQuestionResponseDTO)
+                .doOnError(error -> System.out.println("Error fetching question: " + error))
+                .doOnSuccess(response -> {
+                    System.out.println("Question fetched successfully: " + response);
+                    // Trigger an event to increment the view count asynchronously
+                    ViewCountEvent viewCountEvent = new ViewCountEvent(id, "question", LocalDateTime.now());
+                    kafkaEventProducer.publishViewCountEvent(viewCountEvent);
+                });
     }
 
     public Flux<QuestionElasticDocument> searchQuestionsByElasticsearch(String query) {
         return questionDocumentRepository.findByTitleContainingOrContentContaining(query, query);
     }
 }
+

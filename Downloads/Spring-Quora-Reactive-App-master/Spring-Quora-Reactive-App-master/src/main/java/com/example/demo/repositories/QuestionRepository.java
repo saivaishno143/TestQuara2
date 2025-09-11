@@ -10,6 +10,7 @@ import com.example.demo.models.Question;
 import reactor.core.publisher.Flux;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 
 @Repository
@@ -21,4 +22,6 @@ public interface QuestionRepository extends ReactiveMongoRepository<Question, St
     Flux<Question> findByCreatedAtGreaterThanOrderByCreatedAtAsc(LocalDateTime cursor, Pageable pageable);
 
     Flux<Question> findTop10ByOrderByCreatedAtAsc();
+
+    Flux<Question> findByUserIdInOrderByCreatedAtDesc(List<String> userIds);
 }

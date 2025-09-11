@@ -17,7 +17,7 @@ import lombok.*;
 @AllArgsConstructor
 @Document(collection = "questions")
 public class Question {
-    
+
     @Id
     private String id;
 
@@ -29,14 +29,13 @@ public class Question {
     @Size(min = 10, max = 1000, message = "Content must be between 10 and 1000 characters")
     private String content;
 
+    private String userId;
+
     private Integer views;
- 
+
     @CreatedDate
     private LocalDateTime createdAt;
 
     @LastModifiedDate
     private LocalDateTime updatedAt;
 }
-
-
-// Question has many tags, one tag can have many questions
